@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import axios, { AxiosProgressEvent } from 'axios';
 
@@ -11,7 +11,7 @@ interface FileInfo {
   uploadDate: string;
 }
 
-export default function Home() {
+function FileManager() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
@@ -353,5 +353,24 @@ export default function Home() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="text-center py-8">
+            <div className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-600 rounded-lg">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+              Loading...
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <FileManager />
+    </Suspense>
   );
 }
