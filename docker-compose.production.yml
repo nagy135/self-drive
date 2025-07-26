@@ -1,0 +1,14 @@
+version: "3.7"
+services:
+  app:
+    build:
+      dockerfile: ./Dockerfile.production
+      context: ./.
+    ports:
+      - "13001:3000"
+      - "14983:4983"
+    stdin_open: true
+
+volumes:
+  next-drive-postgres:
+    name: next-drive-postgres
