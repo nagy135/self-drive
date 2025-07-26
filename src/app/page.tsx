@@ -13,6 +13,7 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<'upload' | 'download'>('upload');
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,34 +68,68 @@ export default function Home() {
 
   const uploadFile = async (file: File) => {
     setUploading(true);
+    setUploadProgress(0);
     setUploadMessage('');
 
     const formData = new FormData();
     formData.append('file', file);
 
-    try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+    // Use XMLHttpRequest for progress tracking
+    const xhr = new XMLHttpRequest();
+
+    return new Promise((resolve, reject) => {
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = (e.loaded / e.total) * 100;
+          setUploadProgress(Math.round(percentComplete));
+        }
       });
 
-      const data = await response.json();
-      
-      if (data.success) {
-        setUploadMessage(`✅ ${file.name} uploaded successfully!`);
-        // Reset file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
+      // Handle completion
+      xhr.addEventListener('load', () => {
+        setUploading(false);
+        setUploadProgress(0);
+        
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status === 200 && data.success) {
+            setUploadMessage(`✅ ${file.name} uploaded successfully!`);
+            // Reset file input
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+            resolve(data);
+          } else {
+            setUploadMessage(`❌ Error: ${data.message || 'Upload failed'}`);
+            reject(new Error(data.message || 'Upload failed'));
+          }
+        } catch (error) {
+          setUploadMessage('❌ Error parsing response');
+          reject(error);
         }
-      } else {
-        setUploadMessage(`❌ Error: ${data.message}`);
-      }
-    } catch (error) {
-      setUploadMessage('❌ Error uploading file');
-      console.error('Upload error:', error);
-    } finally {
-      setUploading(false);
-    }
+      });
+
+      // Handle errors
+      xhr.addEventListener('error', () => {
+        setUploading(false);
+        setUploadProgress(0);
+        setUploadMessage('❌ Network error during upload');
+        reject(new Error('Network error'));
+      });
+
+      // Handle aborts
+      xhr.addEventListener('abort', () => {
+        setUploading(false);
+        setUploadProgress(0);
+        setUploadMessage('❌ Upload cancelled');
+        reject(new Error('Upload cancelled'));
+      });
+
+      // Start the request
+      xhr.open('POST', '/api/upload');
+      xhr.send(formData);
+    });
   };
 
   const downloadFile = async (fileName: string) => {
@@ -186,26 +221,38 @@ export default function Home() {
                   onChange={handleFileSelect}
                   className="hidden"
                   id="file-upload"
+                  disabled={uploading}
                 />
                 <label
                   htmlFor="file-upload"
-                  className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg cursor-pointer font-medium transition-colors"
+                  className={`inline-block px-6 py-3 rounded-lg cursor-pointer font-medium transition-colors ${
+                    uploading
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
                 >
-                  Choose File
+                  {uploading ? 'Uploading...' : 'Choose File'}
                 </label>
               </div>
             </div>
 
+            {/* Progress Bar */}
             {uploading && (
-              <div className="mt-4 text-center">
-                <div className="inline-flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-lg">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                  Uploading...
+              <div className="mt-6">
+                <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+                  <span>Uploading...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
                 </div>
               </div>
             )}
 
-            {uploadMessage && (
+            {uploadMessage && !uploading && (
               <div className="mt-4 text-center">
                 <div className="inline-block px-4 py-2 bg-gray-100 text-gray-800 rounded-lg">
                   {uploadMessage}
