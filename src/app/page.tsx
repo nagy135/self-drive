@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import axios, { AxiosProgressEvent } from 'axios';
 
 interface FileInfo {
   fileName: string;
@@ -10,13 +12,22 @@ interface FileInfo {
 }
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<'upload' | 'download'>('upload');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  // Initialize currentView based on URL parameter, default to 'upload'
+  const [currentView, setCurrentView] = useState<'upload' | 'download'>(() => {
+    const tab = searchParams.get('tab');
+    return tab === 'download' ? 'download' : 'upload';
+  });
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState('');
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchFiles = async () => {
@@ -33,6 +44,13 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  // Update currentView when URL parameter changes
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const newView = tab === 'download' ? 'download' : 'upload';
+    setCurrentView(newView);
+  }, [searchParams]);
 
   useEffect(() => {
     if (currentView === 'download') {
@@ -74,65 +92,43 @@ export default function Home() {
     const formData = new FormData();
     formData.append('file', file);
 
-    // Use XMLHttpRequest for progress tracking
-    const xhr = new XMLHttpRequest();
+    try {
+      const response = await axios.post('/api/upload', formData, {
+        onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
+          setUploadProgress(progress);
+        },
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
 
-    return new Promise((resolve, reject) => {
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = (e.loaded / e.total) * 100;
-          setUploadProgress(Math.round(percentComplete));
+      if (response.data.success) {
+        setUploadMessage(`✅ ${file.name} uploaded successfully!`);
+        // Reset file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
         }
-      });
-
-      // Handle completion
-      xhr.addEventListener('load', () => {
-        setUploading(false);
-        setUploadProgress(0);
-        
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (xhr.status === 200 && data.success) {
-            setUploadMessage(`✅ ${file.name} uploaded successfully!`);
-            // Reset file input
-            if (fileInputRef.current) {
-              fileInputRef.current.value = '';
-            }
-            resolve(data);
-          } else {
-            setUploadMessage(`❌ Error: ${data.message || 'Upload failed'}`);
-            reject(new Error(data.message || 'Upload failed'));
-          }
-        } catch (error) {
-          setUploadMessage('❌ Error parsing response');
-          reject(error);
-        }
-      });
-
-      // Handle errors
-      xhr.addEventListener('error', () => {
-        setUploading(false);
-        setUploadProgress(0);
-        setUploadMessage('❌ Network error during upload');
-        reject(new Error('Network error'));
-      });
-
-      // Handle aborts
-      xhr.addEventListener('abort', () => {
-        setUploading(false);
-        setUploadProgress(0);
-        setUploadMessage('❌ Upload cancelled');
-        reject(new Error('Upload cancelled'));
-      });
-
-      // Start the request
-      xhr.open('POST', '/api/upload');
-      xhr.send(formData);
-    });
+      } else {
+        setUploadMessage(`❌ Error: ${response.data.message}`);
+      }
+    } catch (error: unknown) {
+      console.error('Upload error:', error);
+      if (axios.isAxiosError(error)) {
+        setUploadMessage(`❌ Error: ${error.response?.data?.message || error.message}`);
+      } else {
+        setUploadMessage('❌ Error uploading file');
+      }
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   const downloadFile = async (fileName: string) => {
+    setDownloadingFile(fileName);
+    setDownloadMessage('');
+    
     try {
       const response = await fetch(`/api/download/${fileName}`);
       if (response.ok) {
@@ -145,9 +141,28 @@ export default function Home() {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+        
+        // Show success message
+        setDownloadMessage(`✅ ${fileName} downloaded successfully!`);
+        
+        // Clear message after 3 seconds
+        setTimeout(() => {
+          setDownloadMessage('');
+        }, 3000);
+      } else {
+        setDownloadMessage(`❌ Error downloading ${fileName}`);
+        setTimeout(() => {
+          setDownloadMessage('');
+        }, 3000);
       }
     } catch (error) {
       console.error('Download error:', error);
+      setDownloadMessage(`❌ Error downloading ${fileName}`);
+      setTimeout(() => {
+        setDownloadMessage('');
+      }, 3000);
+    } finally {
+      setDownloadingFile(null);
     }
   };
 
@@ -170,7 +185,10 @@ export default function Home() {
         <div className="flex justify-center mb-8">
           <div className="bg-white rounded-lg p-1 shadow-md">
             <button
-              onClick={() => setCurrentView('upload')}
+              onClick={() => {
+                setCurrentView('upload');
+                router.push('/');
+              }}
               className={`px-6 py-2 rounded-md font-medium transition-colors ${
                 currentView === 'upload'
                   ? 'bg-blue-500 text-white shadow-sm'
@@ -180,7 +198,10 @@ export default function Home() {
               Upload
             </button>
             <button
-              onClick={() => setCurrentView('download')}
+              onClick={() => {
+                setCurrentView('download');
+                router.push('/?tab=download');
+              }}
               className={`px-6 py-2 rounded-md font-medium transition-colors ${
                 currentView === 'download'
                   ? 'bg-blue-500 text-white shadow-sm'
@@ -269,6 +290,15 @@ export default function Home() {
               Uploaded Files
             </h2>
 
+            {/* Download Message */}
+            {downloadMessage && (
+              <div className="mb-4 text-center">
+                <div className="inline-block px-4 py-2 bg-gray-100 text-gray-800 rounded-lg">
+                  {downloadMessage}
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <div className="text-center py-8">
                 <div className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-600 rounded-lg">
@@ -299,9 +329,21 @@ export default function Home() {
                     </div>
                     <button
                       onClick={() => downloadFile(file.fileName)}
-                      className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                      disabled={downloadingFile === file.fileName}
+                      className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                        downloadingFile === file.fileName
+                          ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                          : 'bg-green-500 hover:bg-green-600 text-white'
+                      }`}
                     >
-                      Download
+                      {downloadingFile === file.fileName ? (
+                        <span className="flex items-center">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Downloading...
+                        </span>
+                      ) : (
+                        'Download'
+                      )}
                     </button>
                   </div>
                 ))}
