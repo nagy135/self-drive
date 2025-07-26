@@ -8,7 +8,11 @@ services:
       - "13001:3000"
       - "14983:4983"
     stdin_open: true
+    volumes:
+      - uploads:/app/uploads
 
 volumes:
   next-drive-postgres:
     name: next-drive-postgres
+  uploads:
+    name: next-drive-uploads
