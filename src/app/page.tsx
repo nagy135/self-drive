@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import axios, { AxiosProgressEvent } from 'axios';
+import path from 'path';
 
 interface FileInfo {
   fileName: string;
@@ -28,6 +29,11 @@ function FileManager() {
   const [loading, setLoading] = useState(false);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [downloadMessage, setDownloadMessage] = useState('');
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [fileToRename, setFileToRename] = useState<FileInfo | null>(null);
+  const [newFileName, setNewFileName] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameMessage, setRenameMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchFiles = async () => {
@@ -174,6 +180,64 @@ function FileManager() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const openRenameModal = (file: FileInfo) => {
+    setFileToRename(file);
+    // Set initial value to current name without extension
+    const nameWithoutExt = file.originalName.replace(/\.[^/.]+$/, '');
+    setNewFileName(nameWithoutExt);
+    setIsRenameModalOpen(true);
+    setRenameMessage('');
+  };
+
+  const closeRenameModal = () => {
+    setIsRenameModalOpen(false);
+    setFileToRename(null);
+    setNewFileName('');
+    setRenameMessage('');
+  };
+
+  const renameFile = async () => {
+    if (!fileToRename || !newFileName.trim()) {
+      setRenameMessage('❌ Please enter a valid filename');
+      return;
+    }
+
+    setRenaming(true);
+    setRenameMessage('');
+
+    try {
+      const response = await fetch('/api/rename', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          currentFileName: fileToRename.fileName,
+          newName: newFileName.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setRenameMessage('✅ File renamed successfully!');
+        // Update the files list
+        fetchFiles();
+        // Close modal after a short delay
+        setTimeout(() => {
+          closeRenameModal();
+        }, 1500);
+      } else {
+        setRenameMessage(`❌ ${data.message}`);
+      }
+    } catch (error) {
+      console.error('Rename error:', error);
+      setRenameMessage('❌ Error renaming file');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
@@ -316,10 +380,14 @@ function FileManager() {
                 {files.map((file, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+                    className="flex items-start justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors gap-4"
                   >
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-800">
+                    <div className="flex-1 min-w-0">
+                      <h3 
+                        className="font-medium text-gray-800 break-words cursor-pointer hover:text-blue-600 transition-colors"
+                        onClick={() => openRenameModal(file)}
+                        title="Click to rename"
+                      >
                         {file.originalName}
                       </h3>
                       <p className="text-sm text-gray-500">
@@ -330,7 +398,7 @@ function FileManager() {
                     <button
                       onClick={() => downloadFile(file.fileName)}
                       disabled={downloadingFile === file.fileName}
-                      className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      className={`flex-shrink-0 px-4 py-2 rounded-lg font-medium transition-colors min-w-[100px] ${
                         downloadingFile === file.fileName
                           ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
                           : 'bg-green-500 hover:bg-green-600 text-white'
@@ -349,6 +417,79 @@ function FileManager() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Rename Modal */}
+        {isRenameModalOpen && (
+          <div 
+            className="fixed inset-0 flex items-center justify-center z-50 p-4"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.3)' }}
+          >
+            <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl border">
+              <h2 className="text-xl font-semibold mb-4 text-gray-900">
+                Rename File
+              </h2>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Current name: <span className="font-normal text-gray-900">{fileToRename?.originalName}</span>
+                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  New name:
+                </label>
+                <div className="flex items-center">
+                  <input
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
+                    placeholder="Enter new filename"
+                    disabled={renaming}
+                    onKeyPress={(e) => e.key === 'Enter' && !renaming && renameFile()}
+                  />
+                  <span className="px-3 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-lg text-gray-700 font-medium">
+                    {fileToRename ? path.extname(fileToRename.originalName) : ''}
+                  </span>
+                </div>
+              </div>
+
+              {renameMessage && (
+                <div className="mb-4 text-center">
+                  <div className="inline-block px-4 py-2 bg-gray-50 text-gray-900 rounded-lg text-sm border">
+                    {renameMessage}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={closeRenameModal}
+                  disabled={renaming}
+                  className="px-4 py-2 text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={renameFile}
+                  disabled={renaming || !newFileName.trim()}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    renaming || !newFileName.trim()
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  {renaming ? (
+                    <span className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Renaming...
+                    </span>
+                  ) : (
+                    'Save'
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
