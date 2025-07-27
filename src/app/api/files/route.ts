@@ -32,6 +32,9 @@ export async function GET() {
       })
     );
 
+    // Sort files by modification time in descending order (newest first)
+    fileDetails.sort((a, b) => b.uploadDate.getTime() - a.uploadDate.getTime());
+
     return NextResponse.json({ success: true, files: fileDetails });
   } catch (error) {
     console.error('Error reading files:', error);
